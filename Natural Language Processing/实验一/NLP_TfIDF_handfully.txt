@@ -1,0 +1,169 @@
+import os
+import re
+import jieba
+import numpy as np
+from collections import Counter
+from sklearn.linear_model import LogisticRegression
+from sklearn import preprocessing, metrics
+import seaborn as sns
+import matplotlib.pyplot as plt
+from scipy.sparse import csr_matrix
+
+
+class ManualTFIDF:
+    def __init__(self, max_features=10000):
+        self.vocabulary = {}
+        self.idf = None
+        self.max_features = max_features
+
+    def compute_tf(self, document):
+        # 计算词频
+        word_count = Counter(document)
+        doc_len = len(document)
+        return {word: count / doc_len for word, count in word_count.items()}
+
+    def compute_idf(self, documents):
+        # 计算文档频率
+        word_doc_freq = Counter()
+        for doc in documents:
+            word_doc_freq.update(set(doc))
+
+        most_common = word_doc_freq.most_common(self.max_features)
+        self.vocabulary = {word: idx for idx, (word, _) in enumerate(most_common)}
+
+        # 计算IDF值
+        doc_count = len(documents)
+        self.idf = np.zeros(len(self.vocabulary), dtype=np.float32)
+        for word, idx in self.vocabulary.items():
+            self.idf[idx] = np.log(doc_count / (word_doc_freq[word] + 1)) + 1
+
+    def transform(self, documents):
+        if self.idf is None:
+            raise ValueError("必须先调用fit方法")
+
+        rows, cols, data = [], [], []
+        for doc_idx, doc in enumerate(documents):
+            tf_dict = self.compute_tf(doc)
+
+            for word, tf in tf_dict.items():
+                if word in self.vocabulary:
+                    word_idx = self.vocabulary[word]
+                    rows.append(doc_idx)
+                    cols.append(word_idx)
+                    data.append(tf * self.idf[word_idx])
+
+        return csr_matrix((data, (rows, cols)),
+                          shape=(len(documents), len(self.vocabulary)),
+                          dtype=np.float32)
+
+    def fit_transform(self, documents):
+        self.compute_idf(documents)
+        return self.transform(documents)
+
+
+def read_file(filename, max_samples=None):
+    contents, labels = [], []
+    with open(filename, encoding='utf-8') as f:
+        for i, line in enumerate(f):
+            if max_samples and i >= max_samples:
+                break
+            try:
+                label, content = line.strip().split('\t')
+                if content:
+                    contents.append(content)
+                    labels.append(label)
+            except:
+                pass
+    return contents, labels
+
+
+def clear_character(sentence):
+    pattern1 = '\[.*?\]'
+    pattern2 = re.compile('[^\u4e00-\u9fa5^a-z^A-Z^0-9]')
+    line1 = re.sub(pattern1, '', sentence)
+    line2 = re.sub(pattern2, '', line1)
+    return ''.join(line2.split())
+
+
+def drop_stopwords(line, stopwords):
+    return [word for word in line if word not in stopwords]
+
+
+def main():
+    # 读取完整数据集，不限制样本数
+    test_content, test_label = read_file(r'F:\NNNNNNNNNNNNNNLP\dataSet\cnews.test.txt')
+    train_content, train_label = read_file(r'F:\NNNNNNNNNNNNNNLP\dataSet\cnews.train.txt')
+
+    print(f"训练集大小: {len(train_content)}, 测试集大小: {len(test_content)}")
+    print("训练集标签前10个:", train_label[:10])  # 添加这行来检查标签
+
+    # 文本清洗
+    tr_text = list(map(clear_character, train_content))
+    te_text = list(map(clear_character, test_content))
+    print("清洗后的第2个训练样本:", tr_text[1])  # 添加这行来检查文本清洗效果
+
+    # 分词
+    tr_seg_text = list(map(jieba.lcut, tr_text))
+    te_seg_text = list(map(jieba.lcut, te_text))
+
+    # 读取停用词
+    stopwords = []
+    with open(r"F:\NNNNNNNNNNNNNNLP\dataSet\stop_words.txt", encoding='utf-8') as f:
+        stopwords = [line.replace('\n', '') for line in f]  # 使用replace替代strip
+    print("停用词前10个:", stopwords[:10])
+
+    # 去除停用词
+    tr_st_text = list(map(lambda s: drop_stopwords(s, stopwords), tr_seg_text))
+    te_st_text = list(map(lambda s: drop_stopwords(s, stopwords), te_seg_text))
+    print("去停用词后的第2个训练样本前20个词:", tr_st_text[1][:20])
+
+    # 手动TF-IDF转换
+    tfidf = ManualTFIDF(max_features=50000)  # 增加特征数量到50000
+    train_Data = tfidf.fit_transform(tr_st_text)
+    test_Data = tfidf.transform(te_st_text)
+
+    print(f"特征维度: {train_Data.shape[1]}")
+
+    # 标签编码
+    le = preprocessing.LabelEncoder()
+    le.fit(train_label)
+    label_train_id = le.transform(train_label)
+
+    # 获取标签映射
+    map_label = {i: label for i, label in enumerate(le.classes_)}
+    print("标签映射:", map_label)
+    print("部分训练标签ID:", label_train_id[35000:40000])
+
+    # 训练分类器
+    classifier = LogisticRegression(
+        max_iter=2000,
+        C=1.0,
+        multi_class='ovr',  # 使用one-vs-rest策略
+        solver='lbfgs',  # 使用lbfgs优化器
+        n_jobs=-1  # 使用所有CPU核心
+    )
+    classifier.fit(train_Data, label_train_id)
+
+    # 预测和评估
+    pred = classifier.predict(test_Data)
+    predicted = [map_label[p] for p in pred]
+    print("部分预测结果:", predicted[:20])
+
+    # 打印分类报告
+    print("\n分类报告:")
+    print(metrics.classification_report(test_label, predicted))
+
+    # 绘制混淆矩阵
+    classes = np.unique(test_label)
+    cm = metrics.confusion_matrix(test_label, predicted)
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(cm, annot=True, fmt='d', cmap=plt.cm.Blues, cbar=False)
+    plt.xlabel("预测标签")
+    plt.ylabel("真实标签")
+    plt.title("混淆矩阵")
+    plt.yticks(rotation=0)
+    plt.show()
+
+
+if __name__ == "__main__":
+    main()
