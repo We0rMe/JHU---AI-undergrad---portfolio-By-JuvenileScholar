@@ -2,7 +2,7 @@
 As a 2022 AI undergraduate at Jianghan University, this repository archives all my relevant course projects, study materials, and academic presentations throughout my bachelor's degree. 
 
 
-The relevant content is in the master branch. 
+The relevant content is in the MASTER branch. 
 
 
 ⚠️⚠️⚠️IMPORTANT: Please read CN_README.txt carefully before referencing any resources!⚠️⚠️⚠️
