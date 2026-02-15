@@ -6,3 +6,6 @@ The relevant content is in the master branch.
 
 
 ⚠️⚠️⚠️IMPORTANT: Please read CN_README.txt carefully before referencing any resources!⚠️⚠️⚠️
+
+
+Students who are interested in this project and the next one (Student Survival Manual of Jianghan University, see the end of CN_README.txt) are welcome to contact me!
